@@ -3,7 +3,7 @@ function open {
         [Parameter(Mandatory=$true, Position=0, ValueFromRemainingArguments=$true)]
         [string[]]$Name
     )
-    # Alias dictionary for common abbreviations
+    # ALIASES FOR FASTER TYPING TO OPEN APPS
     $appAliases = @{
         'vsc' = 'Visual Studio Code'
         'vscode' = 'Visual Studio Code'
@@ -12,7 +12,7 @@ function open {
         'excel' = 'Excel'
         'ppt' = 'PowerPoint'
         'ps' = 'PowerShell'
-        # Add more as needed
+        # ADD MORE HERE
     }
     $apps = Get-StartApps | Sort-Object Name
     if (-not $apps) {
@@ -43,10 +43,8 @@ function open {
     Write-Host ("\n🚀 Launching: {0}" -f $appSelected.Name)
     try {
         if ($appPath -match '(^[A-Z]:\\|^\\\\|[\\{.,])') {
-            # Full path or AppID with backslash/curly brace, use shell:AppsFolder
             Start-Process "shell:AppsFolder\$appPath"
         } else {
-            # Simple AppID, not a path, not a shell id
             Start-Process "$appPath.exe"
         }
     } catch {
@@ -55,7 +53,6 @@ function open {
     }
 }
 function Open-App {
-    # Alias dictionary for common abbreviations
     $appAliases = @{
         'vsc' = 'Visual Studio Code'
         'vscode' = 'Visual Studio Code'
@@ -64,7 +61,6 @@ function Open-App {
         'excel' = 'Excel'
         'ppt' = 'PowerPoint'
         'ps' = 'PowerShell'
-        # Add more as needed
     }
     $apps = Get-StartApps | Sort-Object Name
     if (-not $apps) {
@@ -77,7 +73,6 @@ function Open-App {
         Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
         return
     }
-    # Use alias if available
     $searchInput = $userInput
     if ($appAliases.ContainsKey($userInput.ToLower())) {
         $searchInput = $appAliases[$userInput.ToLower()]
@@ -113,10 +108,8 @@ function Open-App {
     Write-Host ("\n🚀 Launching: {0}" -f $selected.Name)
     try {
         if ($appPath -match '(^[A-Z]:\\|^\\\\|[\\{.,])') {
-            # Full path or AppID with backslash/curly brace, use shell:AppsFolder
             Start-Process "shell:AppsFolder\$appPath"
         } else {
-            # Simple AppID, not a path, not a shell id
             Start-Process "$appPath.exe"
         }
     } catch {
@@ -175,14 +168,12 @@ function Open-Blender {
         Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
         return
     } else {
-        # Try version parsing
         try {
             $ver = [version]$userCin
             $selected = $versioned | Where-Object { $_.Version -eq $ver } | Select-Object -First 1
         } catch {
             $selected = $null
         }
-        # Try name or AppID match if not found by version
         if (-not $selected) {
             $selected = $allAppsSorted | Where-Object { $_.Name -eq $userCin -or $_.AppID -like "*$userCin*" } | Select-Object -First 1
         }
