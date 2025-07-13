@@ -1,4 +1,15 @@
 function Open-App {
+    # Alias dictionary for common abbreviations
+    $appAliases = @{
+        'vsc' = 'Visual Studio Code'
+        'vscode' = 'Visual Studio Code'
+        'vs'  = 'Visual Studio'
+        'word' = 'Word'
+        'excel' = 'Excel'
+        'ppt' = 'PowerPoint'
+        'ps' = 'PowerShell'
+        # Add more as needed
+    }
     $apps = Get-StartApps | Sort-Object Name
     if (-not $apps) {
         Write-Host "❌ No Start Menu apps found." -ForegroundColor Red
@@ -10,16 +21,20 @@ function Open-App {
         Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
         return
     }
-    $matches = $apps | Where-Object { $_.Name -like "*$userInput*" } | Select-Object -Property *
-    $matchesArray = @($matches)
-    Write-Host "[DEBUG] Matches type: $($matchesArray.GetType().FullName), Count: $($matchesArray.Count)" -ForegroundColor DarkGray
-    if (-not $matchesArray -or $matchesArray.Count -eq 0) {
+    # Use alias if available
+    $searchInput = $userInput
+    if ($appAliases.ContainsKey($userInput.ToLower())) {
+        $searchInput = $appAliases[$userInput.ToLower()]
+    }
+    $appMatch = $apps | Where-Object { $_.Name -like "*$searchInput*" } | Select-Object -Property *
+    $appMatchArray = @($appMatch)
+    if (-not $appMatchArray -or $appMatchArray.Count -eq 0) {
         Write-Host "❌ No app matches input." -ForegroundColor Red
         return
     }
     Write-Host "\nAvailable matches:"
     $i = 1
-    foreach ($app in $matchesArray) {
+    foreach ($app in $appMatchArray) {
         $appIdDisplay = if ($app.PSObject.Properties.Name -contains 'AppID') { $app.AppID } else { '<no AppID>' }
         Write-Host ("  [$i] {0}  (AppID: {1})" -f $app.Name, $appIdDisplay)
         $i++
@@ -29,11 +44,11 @@ function Open-App {
         Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
         return
     }
-    if ($choice -notmatch '^[0-9]+$' -or [int]$choice -lt 1 -or [int]$choice -gt $matchesArray.Count) {
+    if ($choice -notmatch '^[0-9]+$' -or [int]$choice -lt 1 -or [int]$choice -gt $appMatchArray.Count) {
         Write-Host "❌ Invalid selection." -ForegroundColor Red
         return
     }
-    $selected = $matchesArray | Select-Object -Skip ([int]$choice - 1) -First 1
+    $selected = $appMatchArray | Select-Object -Skip ([int]$choice - 1) -First 1
     if (-not ($selected.PSObject.Properties.Name -contains 'AppID')) {
         Write-Host "❌ Selected app does not have an AppID property. Object properties: $($selected.PSObject.Properties.Name -join ', ')" -ForegroundColor Red
         return
@@ -88,8 +103,8 @@ function Open-Blender {
     $allAppsSorted | ForEach-Object {
         Write-Host ("    {0,-$maxNameLen}  {1,-$maxAppIdLen}" -f $_.Name, $_.AppID)
     }
-    $input = Read-Host "`n🔍 Enter Blender version, name, or AppID (press Enter for latest version, or type 'n' to cancel)"
-    if ([string]::IsNullOrWhiteSpace($input)) {
+    $userCin = Read-Host "`n🔍 Enter Blender version, name, or AppID (press Enter for latest version, or type 'n' to cancel)"
+    if ([string]::IsNullOrWhiteSpace($userCin)) {
         if ($versioned.Count -gt 0) {
             $selected = $versioned | Sort-Object Version -Descending | Select-Object -First 1
             Write-Host "`n🚀 Launching latest version: $($selected.Name)"
@@ -100,20 +115,20 @@ function Open-Blender {
             Write-Host "❌ No Blender installation found." -ForegroundColor Red
             return
         }
-    } elseif ($input -match '^(n|no)$') {
+    } elseif ($userCin -match '^(n|no)$') {
         Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
         return
     } else {
         # Try version parsing
         try {
-            $ver = [version]$input
+            $ver = [version]$userCin
             $selected = $versioned | Where-Object { $_.Version -eq $ver } | Select-Object -First 1
         } catch {
             $selected = $null
         }
         # Try name or AppID match if not found by version
         if (-not $selected) {
-            $selected = $allAppsSorted | Where-Object { $_.Name -eq $input -or $_.AppID -like "*$input*" } | Select-Object -First 1
+            $selected = $allAppsSorted | Where-Object { $_.Name -eq $userCin -or $_.AppID -like "*$userCin*" } | Select-Object -First 1
         }
         if (-not $selected) {
             Write-Host "❌ No Blender version, name, or AppID matches input." -ForegroundColor Red
