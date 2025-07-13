@@ -27,16 +27,11 @@ function Open-Blender {
     $allApps = $versioned + $unversioned
     Write-Host "`n📦 Available Blender Installations:"
     $allAppsSorted = $allApps | Sort-Object { $null -ne $_.Version }, Version
-    $maxNameLen = ($allAppsSorted | ForEach-Object { if ($_.Version) { $_.Version.ToString().Length } else { $_.Name.Length } } | Measure-Object -Maximum).Maximum
+    $maxNameLen = ($allAppsSorted | ForEach-Object { $_.Name.Length } | Measure-Object -Maximum).Maximum
+    $maxAppIdLen = ($allAppsSorted | ForEach-Object { $_.AppID.Length } | Measure-Object -Maximum).Maximum
+    Write-Host ("    {0,-$maxNameLen}  {1,-$maxAppIdLen}" -f 'Name', 'AppID')
     $allAppsSorted | ForEach-Object {
-        $label = $_.Version
-        if ($label) {
-            $label = $label.ToString()
-        } else {
-            $label = $_.Name
-        }
-        $pad = ' ' * ($maxNameLen - $label.Length)
-        Write-Host ("  - {0}{1}  [{2}]" -f $label, $pad, $_.AppID)
+        Write-Host ("    {0,-$maxNameLen}  {1,-$maxAppIdLen}" -f $_.Name, $_.AppID)
     }
     $input = Read-Host "`n🔍 Enter Blender version, name, or AppID (press Enter for latest version, or type 'n' to cancel)"
     if ([string]::IsNullOrWhiteSpace($input)) {
