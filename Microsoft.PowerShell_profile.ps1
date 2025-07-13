@@ -34,24 +34,19 @@ function Open-App {
         return
     }
     $selected = $matchesArray | Select-Object -Skip ([int]$choice - 1) -First 1
-    Write-Host "[DEBUG] Selected object:`n$($selected | Format-List | Out-String)" -ForegroundColor DarkGray
     if (-not ($selected.PSObject.Properties.Name -contains 'AppID')) {
         Write-Host "❌ Selected app does not have an AppID property. Object properties: $($selected.PSObject.Properties.Name -join ', ')" -ForegroundColor Red
         return
     }
-    $confirm = Read-Host ("Are you sure you want to open '{0}'? (y/n)" -f $selected.Name)
-    if ($confirm -notmatch '^(y|yes)$') {
-        Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
-        return
-    }
-    Write-Host ("\n🚀 Launching: {0}" -f $selected.Name)
     $appPath = $selected.AppID
-    Write-Host "[DEBUG] AppID to launch: $appPath" -ForegroundColor Cyan
+    Write-Host ("\n🚀 Launching: {0}" -f $selected.Name)
     try {
-        if ($appPath -notlike '*.exe') {
-            Start-Process "$appPath.exe"
+        if ($appPath -match '(^[A-Z]:\\|^\\\\|[\\{.,])') {
+            # Full path or AppID with backslash/curly brace, use shell:AppsFolder
+            Start-Process "shell:AppsFolder\$appPath"
         } else {
-            Start-Process "$appPath"
+            # Simple AppID, not a path, not a shell id
+            Start-Process "$appPath.exe"
         }
     } catch {
         Write-Host "❌ Failed to launch: $appPath" -ForegroundColor Red
