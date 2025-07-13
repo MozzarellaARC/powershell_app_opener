@@ -1,3 +1,63 @@
+function Open-App {
+    $apps = Get-StartApps | Sort-Object Name
+    if (-not $apps) {
+        Write-Host "❌ No Start Menu apps found." -ForegroundColor Red
+        return
+    }
+
+    $userInput = Read-Host "🔍 Enter part of the app name to open (or 'n' to cancel)"
+    if ([string]::IsNullOrWhiteSpace($userInput) -or $userInput -match '^(n|no)$') {
+        Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
+        return
+    }
+    $matches = $apps | Where-Object { $_.Name -like "*$userInput*" } | Select-Object -Property *
+    $matchesArray = @($matches)
+    Write-Host "[DEBUG] Matches type: $($matchesArray.GetType().FullName), Count: $($matchesArray.Count)" -ForegroundColor DarkGray
+    if (-not $matchesArray -or $matchesArray.Count -eq 0) {
+        Write-Host "❌ No app matches input." -ForegroundColor Red
+        return
+    }
+    Write-Host "\nAvailable matches:"
+    $i = 1
+    foreach ($app in $matchesArray) {
+        $appIdDisplay = if ($app.PSObject.Properties.Name -contains 'AppID') { $app.AppID } else { '<no AppID>' }
+        Write-Host ("  [$i] {0}  (AppID: {1})" -f $app.Name, $appIdDisplay)
+        $i++
+    }
+    $choice = Read-Host "Enter the number of the app to open, or 'n' to cancel"
+    if ($choice -match '^(n|no)$') {
+        Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
+        return
+    }
+    if ($choice -notmatch '^[0-9]+$' -or [int]$choice -lt 1 -or [int]$choice -gt $matchesArray.Count) {
+        Write-Host "❌ Invalid selection." -ForegroundColor Red
+        return
+    }
+    $selected = $matchesArray | Select-Object -Skip ([int]$choice - 1) -First 1
+    Write-Host "[DEBUG] Selected object:`n$($selected | Format-List | Out-String)" -ForegroundColor DarkGray
+    if (-not ($selected.PSObject.Properties.Name -contains 'AppID')) {
+        Write-Host "❌ Selected app does not have an AppID property. Object properties: $($selected.PSObject.Properties.Name -join ', ')" -ForegroundColor Red
+        return
+    }
+    $confirm = Read-Host ("Are you sure you want to open '{0}'? (y/n)" -f $selected.Name)
+    if ($confirm -notmatch '^(y|yes)$') {
+        Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
+        return
+    }
+    Write-Host ("\n🚀 Launching: {0}" -f $selected.Name)
+    $appPath = $selected.AppID
+    Write-Host "[DEBUG] AppID to launch: $appPath" -ForegroundColor Cyan
+    try {
+        if ($appPath -notlike '*.exe') {
+            Start-Process "$appPath.exe"
+        } else {
+            Start-Process "$appPath"
+        }
+    } catch {
+        Write-Host "❌ Failed to launch: $appPath" -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor DarkRed
+    }
+}
 function Open-Blender {
     $blenderApps = Get-StartApps | Where-Object Name -match '^blender'
     if (-not $blenderApps) {
