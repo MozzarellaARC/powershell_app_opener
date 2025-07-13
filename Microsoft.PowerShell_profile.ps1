@@ -1,15 +1,47 @@
-# Cache for app list to avoid repeated Get-StartApps calls
-if (-not $Script:CachedApps -or $Script:AppsCacheTime -lt (Get-Date).AddMinutes(-5)) {
-    $Script:CachedApps = Get-StartApps | Sort-Object Name
-    $Script:AppsCacheTime = Get-Date
+# File-based cache for app list
+$Script:AppCacheFile = "$env:TEMP\PowerShell_AppCache.xml"
+
+# Load apps from cache file or create cache if it doesn't exist
+function Get-CachedApps {
+    if (Test-Path $Script:AppCacheFile) {
+        try {
+            $Script:CachedApps = Import-Clixml $Script:AppCacheFile
+            return $Script:CachedApps
+        } catch {
+            Write-Host "⚠️ Cache file corrupted, rebuilding..." -ForegroundColor Yellow
+        }
+    }
+    
+    # Cache doesn't exist or is corrupted, create it
+    Write-Host "🔄 Building app cache (first time setup)..." -ForegroundColor Cyan
+    Refresh-AppCache
+    return $Script:CachedApps
 }
 
 # Function to manually refresh the app cache
 function Refresh-AppCache {
     Write-Host "🔄 Refreshing app cache..." -ForegroundColor Cyan
     $Script:CachedApps = Get-StartApps | Sort-Object Name
-    $Script:AppsCacheTime = Get-Date
-    Write-Host "✅ App cache refreshed!" -ForegroundColor Green
+    
+    # Save to cache file
+    try {
+        $Script:CachedApps | Export-Clixml $Script:AppCacheFile -Force
+        Write-Host "✅ App cache refreshed and saved!" -ForegroundColor Green
+    } catch {
+        Write-Host "⚠️ Failed to save cache file: $_" -ForegroundColor Yellow
+        Write-Host "✅ App cache refreshed (memory only)!" -ForegroundColor Green
+    }
+}
+
+# Function to clear the app cache
+function Clear-AppCache {
+    if (Test-Path $Script:AppCacheFile) {
+        Remove-Item $Script:AppCacheFile -Force
+        Write-Host "🗑️ App cache cleared!" -ForegroundColor Green
+    } else {
+        Write-Host "ℹ️ No cache file to clear." -ForegroundColor Gray
+    }
+    $Script:CachedApps = $null
 }
 
 function open {
@@ -29,8 +61,8 @@ function open {
         # ADD MORE HERE
     }
     
-    # Use cached apps instead of calling Get-StartApps every time
-    $apps = $Script:CachedApps
+    # Use cached apps from file
+    $apps = Get-CachedApps
     if (-not $apps) {
         Write-Host "❌ No Start Menu apps found." -ForegroundColor Red
         return
