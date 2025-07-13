@@ -39,10 +39,13 @@ function open {
         $appSelected = $appMatchArray[0]
     } else {
         Write-Host "`nAvailable matches:"
+        $maxNameLen = ($appMatchArray | ForEach-Object { $_.Name.Length } | Measure-Object -Maximum).Maximum
+        $maxAppIdLen = ($appMatchArray | ForEach-Object { if ($_.PSObject.Properties.Name -contains 'AppID') { $_.AppID.Length } else { 9 } } | Measure-Object -Maximum).Maximum
         $i = 1
+        Write-Host ("    {0,-$maxNameLen}  {1,-$maxAppIdLen}" -f 'Name', 'AppID')
         foreach ($app in $appMatchArray) {
             $appIdDisplay = if ($app.PSObject.Properties.Name -contains 'AppID') { $app.AppID } else { '<no AppID>' }
-            Write-Host ("  [$i] {0}  (AppID: {1})" -f $app.Name, $appIdDisplay)
+            Write-Host ("  [{0}] {1,-$maxNameLen}  {2,-$maxAppIdLen}" -f $i, $app.Name, $appIdDisplay)
             $i++
         }
         $choice = Read-Host "Enter the number of the app to open, or 'n' to cancel"
