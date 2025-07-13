@@ -1,0 +1,183 @@
+# File-based cache for app list
+$Script:AppCacheFile = "$env:TEMP\PowerShell_AppCache.xml"
+
+# Load apps from cache file or create cache if it doesn't exist
+function Get-CachedApps {
+    if (Test-Path $Script:AppCacheFile) {
+        try {
+            $Script:CachedApps = Import-Clixml $Script:AppCacheFile
+            return $Script:CachedApps
+        } catch {
+            Write-Host "⚠️ Cache file corrupted, rebuilding..." -ForegroundColor Yellow
+        }
+    }
+    
+    # Cache doesn't exist or is corrupted, create it
+    Write-Host "🔄 Building app cache (first time setup)..." -ForegroundColor Cyan
+    Refresh-AppCache
+    return $Script:CachedApps
+}
+
+# Function to manually refresh the app cache
+function Refresh-AppCache {
+    Write-Host "🔄 Refreshing app cache..." -ForegroundColor Cyan
+    $Script:CachedApps = Get-StartApps | Sort-Object Name
+    
+    # Save to cache file
+    try {
+        $Script:CachedApps | Export-Clixml $Script:AppCacheFile -Force
+        Write-Host "✅ App cache refreshed and saved!" -ForegroundColor Green
+    } catch {
+        Write-Host "⚠️ Failed to save cache file: $_" -ForegroundColor Yellow
+        Write-Host "✅ App cache refreshed (memory only)!" -ForegroundColor Green
+    }
+}
+
+# Function to clear the app cache
+function Clear-AppCache {
+    if (Test-Path $Script:AppCacheFile) {
+        Remove-Item $Script:AppCacheFile -Force
+        Write-Host "🗑️ App cache cleared!" -ForegroundColor Green
+    } else {
+        Write-Host "ℹ️ No cache file to clear." -ForegroundColor Gray
+    }
+    $Script:CachedApps = $null
+}
+
+function open {
+    param(
+        [Parameter(Mandatory=$true, Position=0, ValueFromRemainingArguments=$true)]
+        [string[]]$Name
+    )
+    # ALIASES FOR FASTER TYPING TO OPEN APPS
+    $appAliases = @{
+        'vsc' = 'Visual Studio Code'
+        'vscode' = 'Visual Studio Code'
+        'vs'  = 'Visual Studio'
+        'word' = 'Word'
+        'excel' = 'Excel'
+        'ppt' = 'PowerPoint'
+        'ps' = 'PowerShell'
+        # ADD MORE HERE
+    }
+    
+    # Use cached apps from file
+    $apps = Get-CachedApps
+    if (-not $apps) {
+        Write-Host "❌ No Start Menu apps found." -ForegroundColor Red
+        return
+    }
+    
+    $userInput = ($Name -join ' ')
+    if ([string]::IsNullOrWhiteSpace($userInput)) {
+        Write-Host "❌ No app name provided." -ForegroundColor Yellow
+        return
+    }
+    
+    $searchInput = $userInput
+    $userInputLower = $userInput.ToLower()
+    if ($appAliases.ContainsKey($userInputLower)) {
+        $searchInput = $appAliases[$userInputLower]
+    }
+    
+    # Remove unnecessary Select-Object which copies all properties
+    $appMatch = $apps | Where-Object { $_.Name -like "*$searchInput*" }
+    if (-not $appMatch) {
+        Write-Host "❌ No app matches input: $userInput" -ForegroundColor Red
+        return
+    }
+
+    # Convert to array only if multiple matches exist
+    $appMatchArray = @($appMatch)
+    
+    if ($appMatchArray.Count -eq 1) {
+        $appSelected = $appMatchArray[0]
+    } else {
+        Write-Host "`nAvailable matches:"
+        # Pre-calculate lengths more efficiently
+        $nameWidths = $appMatchArray | ForEach-Object { $_.Name.Length }
+        $maxNameLen = ($nameWidths | Measure-Object -Maximum).Maximum
+        
+        $appIdWidths = $appMatchArray | ForEach-Object { 
+            if ($_.AppID) { $_.AppID.Length } else { 9 } 
+        }
+        $maxAppIdLen = ($appIdWidths | Measure-Object -Maximum).Maximum
+        
+        Write-Host ("    {0,-$maxNameLen}  {1,-$maxAppIdLen}" -f 'Name', 'AppID')
+        for ($i = 0; $i -lt $appMatchArray.Count; $i++) {
+            $app = $appMatchArray[$i]
+            $appIdDisplay = if ($app.AppID) { $app.AppID } else { '<no AppID>' }
+            Write-Host ("  [{0}] {1,-$maxNameLen}  {2,-$maxAppIdLen}" -f ($i + 1), $app.Name, $appIdDisplay)
+        }
+        
+        $choice = Read-Host "Enter the number of the app to open, or 'n' to cancel"
+        if ($choice -match '^(n|no)$') {
+            Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
+            return
+        }
+        if ($choice -notmatch '^[0-9]+$' -or [int]$choice -lt 1 -or [int]$choice -gt $appMatchArray.Count) {
+            Write-Host "❌ Invalid selection." -ForegroundColor Red
+            return
+        }
+        $appSelected = $appMatchArray[[int]$choice - 1]
+    }
+
+    # Simplified AppID check
+    if (-not $appSelected.AppID) {
+        Write-Host "❌ Selected app does not have an AppID property." -ForegroundColor Red
+        return
+    }
+    $appPath = $appSelected.AppID
+
+    # Check if process is already running (taskbar), and bring to foreground if so
+    $procName = $null
+    if ($appPath -match '(^[A-Z]:\\|^\\\\|[\\{.,])') {
+        # AppID for UWP/Store apps is not always a process name, so skip check
+        $procName = $null
+    } else {
+        # Use the appPath as process name (strip .exe if present)
+        $procName = [System.IO.Path]::GetFileNameWithoutExtension($appPath)
+    }
+    $broughtToFront = $false
+    if ($procName) {
+        $procs = Get-Process -Name $procName -ErrorAction SilentlyContinue
+        if ($procs) {
+            # Add-Type for SetForegroundWindow and ShowWindow if not already loaded
+            if (-not ([System.Management.Automation.PSTypeName]'Win32SetForegroundWindow').Type) {
+                Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32SetForegroundWindow {
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+}
+"@
+            }
+            foreach ($proc in $procs) {
+                if ($proc.MainWindowHandle -ne 0) {
+                    # Restore window if minimized (SW_RESTORE = 9)
+                    [void][Win32SetForegroundWindow]::ShowWindowAsync($proc.MainWindowHandle, 9)
+                    [void][Win32SetForegroundWindow]::SetForegroundWindow($proc.MainWindowHandle)
+                    Write-Host ("`n🔎 $($appSelected.Name) is already running. Brought to foreground.") -ForegroundColor Cyan
+                    $broughtToFront = $true
+                    break
+                }
+            }
+        }
+    }
+    if (-not $broughtToFront) {
+        Write-Host ("`n🚀 Launching: {0}" -f $appSelected.Name)
+        try {
+            if ($appPath -match '(^[A-Z]:\\|^\\\\|[\\{.,])') {
+                Start-Process "shell:AppsFolder\$appPath"
+            } else {
+                Start-Process "$appPath.exe"
+            }
+        } catch {
+            Write-Host "❌ Failed to launch: $appPath" -ForegroundColor Red
+            Write-Host $_.Exception.Message -ForegroundColor DarkRed
+        }
+    }
+}

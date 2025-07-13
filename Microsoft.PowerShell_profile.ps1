@@ -128,15 +128,168 @@ function open {
         return
     }
     $appPath = $appSelected.AppID
-    Write-Host ("`n🚀 Launching: {0}" -f $appSelected.Name)
-    try {
-        if ($appPath -match '(^[A-Z]:\\|^\\\\|[\\{.,])') {
-            Start-Process "shell:AppsFolder\$appPath"
+
+    # Check if process is already running and bring to foreground if so
+    $broughtToFront = $false
+    
+    # Enhanced Win32 API definitions for better window management
+    if (-not ([System.Management.Automation.PSTypeName]'Win32WindowManager').Type) {
+        Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public class Win32WindowManager {
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+    
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    
+    [DllImport("user32.dll")]
+    public static extern bool IsWindow(IntPtr hWnd);
+    
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+    
+    [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hWnd);
+    
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+    
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+    
+    [DllImport("kernel32.dll")]
+    public static extern uint GetCurrentThreadId();
+    
+    [DllImport("user32.dll")]
+    public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    
+    [DllImport("user32.dll")]
+    public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+    
+    [DllImport("user32.dll")]
+    public static extern int GetWindowTextLength(IntPtr hWnd);
+    
+    // Window show states
+    public const int SW_HIDE = 0;
+    public const int SW_SHOWNORMAL = 1;
+    public const int SW_SHOWMINIMIZED = 2;
+    public const int SW_SHOWMAXIMIZED = 3;
+    public const int SW_SHOWNOACTIVATE = 4;
+    public const int SW_SHOW = 5;
+    public const int SW_MINIMIZE = 6;
+    public const int SW_SHOWMINNOACTIVE = 7;
+    public const int SW_SHOWNA = 8;
+    public const int SW_RESTORE = 9;
+    public const int SW_SHOWDEFAULT = 10;
+    public const int SW_FORCEMINIMIZE = 11;
+    
+    public static bool ForceSetForegroundWindow(IntPtr hWnd) {
+        uint foreThread = GetWindowThreadProcessId(GetForegroundWindow(), out uint temp);
+        uint appThread = GetCurrentThreadId();
+        bool success = false;
+        
+        if (foreThread != appThread) {
+            AttachThreadInput(foreThread, appThread, true);
+            success = SetForegroundWindow(hWnd);
+            AttachThreadInput(foreThread, appThread, false);
         } else {
-            Start-Process "$appPath.exe"
+            success = SetForegroundWindow(hWnd);
         }
-    } catch {
-        Write-Host "❌ Failed to launch: $appPath" -ForegroundColor Red
-        Write-Host $_.Exception.Message -ForegroundColor DarkRed
+        
+        return success;
+    }
+}
+"@
+    }
+    
+    # Try multiple strategies to find the running process
+    $targetProcesses = @()
+    
+    # Strategy 1: Direct process name match
+    if ($appPath -notmatch '(^[A-Z]:\\|^\\\\|[\\{.,])') {
+        $procName = [System.IO.Path]::GetFileNameWithoutExtension($appPath)
+        $targetProcesses += Get-Process -Name $procName -ErrorAction SilentlyContinue
+    }
+    
+    # Strategy 2: Try common process name variations for popular apps
+    $appNameLower = $appSelected.Name.ToLower()
+    $commonProcessNames = @{
+        'discord' = @('Discord', 'DiscordPTB', 'DiscordCanary')
+        'spotify' = @('Spotify')
+        'chrome' = @('chrome')
+        'firefox' = @('firefox')
+        'edge' = @('msedge')
+        'notepad++' = @('notepad++')
+        'visual studio code' = @('Code')
+        'visual studio' = @('devenv')
+        'steam' = @('steam')
+        'obs studio' = @('obs64', 'obs32')
+        'vlc' = @('vlc')
+        'photoshop' = @('Photoshop')
+    }
+    
+    foreach ($key in $commonProcessNames.Keys) {
+        if ($appNameLower -like "*$key*") {
+            foreach ($procName in $commonProcessNames[$key]) {
+                $targetProcesses += Get-Process -Name $procName -ErrorAction SilentlyContinue
+            }
+            break
+        }
+    }
+    
+    # Strategy 3: Search by main window title (partial match)
+    if (-not $targetProcesses) {
+        $allProcesses = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 }
+        foreach ($proc in $allProcesses) {
+            if ($proc.MainWindowTitle -and ($proc.MainWindowTitle -like "*$($appSelected.Name)*" -or $appSelected.Name -like "*$($proc.ProcessName)*")) {
+                $targetProcesses += $proc
+            }
+        }
+    }
+    
+    # Try to bring window to foreground
+    if ($targetProcesses) {
+        foreach ($proc in $targetProcesses) {
+            if ($proc.MainWindowHandle -ne 0 -and [Win32WindowManager]::IsWindow($proc.MainWindowHandle)) {
+                try {
+                    # Check if window is minimized and restore it
+                    if ([Win32WindowManager]::IsIconic($proc.MainWindowHandle)) {
+                        [void][Win32WindowManager]::ShowWindow($proc.MainWindowHandle, [Win32WindowManager]::SW_RESTORE)
+                    }
+                    
+                    # Make sure window is visible
+                    [void][Win32WindowManager]::ShowWindow($proc.MainWindowHandle, [Win32WindowManager]::SW_SHOW)
+                    
+                    # Force bring to foreground
+                    $success = [Win32WindowManager]::ForceSetForegroundWindow($proc.MainWindowHandle)
+                    
+                    if ($success) {
+                        Write-Host ("`n🔎 $($appSelected.Name) is already running. Brought to foreground.") -ForegroundColor Cyan
+                        $broughtToFront = $true
+                        break
+                    }
+                } catch {
+                    # Continue to next process if this one fails
+                    continue
+                }
+            }
+        }
+    }
+    if (-not $broughtToFront) {
+        Write-Host ("`n🚀 Launching: {0}" -f $appSelected.Name)
+        try {
+            if ($appPath -match '(^[A-Z]:\\|^\\\\|[\\{.,])') {
+                Start-Process "shell:AppsFolder\$appPath"
+            } else {
+                Start-Process "$appPath.exe"
+            }
+        } catch {
+            Write-Host "❌ Failed to launch: $appPath" -ForegroundColor Red
+            Write-Host $_.Exception.Message -ForegroundColor DarkRed
+        }
     }
 }
