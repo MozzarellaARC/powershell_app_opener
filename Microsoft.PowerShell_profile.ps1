@@ -1,3 +1,59 @@
+function open {
+    param(
+        [Parameter(Mandatory=$true, Position=0, ValueFromRemainingArguments=$true)]
+        [string[]]$Name
+    )
+    # Alias dictionary for common abbreviations
+    $appAliases = @{
+        'vsc' = 'Visual Studio Code'
+        'vscode' = 'Visual Studio Code'
+        'vs'  = 'Visual Studio'
+        'word' = 'Word'
+        'excel' = 'Excel'
+        'ppt' = 'PowerPoint'
+        'ps' = 'PowerShell'
+        # Add more as needed
+    }
+    $apps = Get-StartApps | Sort-Object Name
+    if (-not $apps) {
+        Write-Host "❌ No Start Menu apps found." -ForegroundColor Red
+        return
+    }
+    $userInput = ($Name -join ' ')
+    if ([string]::IsNullOrWhiteSpace($userInput)) {
+        Write-Host "❌ No app name provided." -ForegroundColor Yellow
+        return
+    }
+    $searchInput = $userInput
+    if ($appAliases.ContainsKey($userInput.ToLower())) {
+        $searchInput = $appAliases[$userInput.ToLower()]
+    }
+    $appMatch = $apps | Where-Object { $_.Name -like "*$searchInput*" } | Select-Object -Property *
+    $appMatchArray = @($appMatch)
+    if (-not $appMatchArray -or $appMatchArray.Count -eq 0) {
+        Write-Host "❌ No app matches input: $userInput" -ForegroundColor Red
+        return
+    }
+    $appSelected = $appMatchArray[0]
+    if (-not ($appSelected.PSObject.Properties.Name -contains 'AppID')) {
+        Write-Host "❌ Selected app does not have an AppID property. Object properties: $($appSelected.PSObject.Properties.Name -join ', ')" -ForegroundColor Red
+        return
+    }
+    $appPath = $appSelected.AppID
+    Write-Host ("\n🚀 Launching: {0}" -f $appSelected.Name)
+    try {
+        if ($appPath -match '(^[A-Z]:\\|^\\\\|[\\{.,])') {
+            # Full path or AppID with backslash/curly brace, use shell:AppsFolder
+            Start-Process "shell:AppsFolder\$appPath"
+        } else {
+            # Simple AppID, not a path, not a shell id
+            Start-Process "$appPath.exe"
+        }
+    } catch {
+        Write-Host "❌ Failed to launch: $appPath" -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor DarkRed
+    }
+}
 function Open-App {
     # Alias dictionary for common abbreviations
     $appAliases = @{
