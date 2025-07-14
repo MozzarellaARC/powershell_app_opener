@@ -11,6 +11,9 @@ The code parse strings from data that is created when you open up an application
 - easy syntax for example to open Google Chrome you can just type:
 ```open chrome```
 
+
+*Before installing it might not work on Windows 10 and Powershell bellow version 7*
+
 ## *Installation*
 - clone this repo
 - open ```profile_initiator.bat``` to create .ps1(file) Powershell profile on your document so that Powershell can call this function
