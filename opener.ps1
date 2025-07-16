@@ -83,7 +83,85 @@ function open {
     # Remove unnecessary Select-Object which copies all properties
     $appMatch = $apps | Where-Object { $_.Name -like "*$searchInput*" }
     if (-not $appMatch) {
-        Write-Host "❌ No app matches input: $userInput" -ForegroundColor Red
+        # Fallback: Use Everything SDK to search for executables
+        # Load Everything SDK if not already loaded
+        if (-not ([System.Management.Automation.PSTypeName]'Everything').Type) {
+            $scriptDir = $PSScriptRoot
+            if (-not $scriptDir) { $scriptDir = Split-Path $PSCommandPath }
+            $everythingDllPath = Join-Path $scriptDir "..\epwsh\Everything-SDK\dll\Everything64.dll"
+            $escapedDllPath = $everythingDllPath -replace '\\', '\\\\'
+            $source = @"
+using System;
+using System.Runtime.InteropServices;
+
+public class Everything
+{
+    [DllImport(\"$escapedDllPath\", CharSet = CharSet.Unicode)]
+    public static extern void Everything_SetSearchW(string search);
+
+    [DllImport(\"$escapedDllPath\")]
+    public static extern void Everything_QueryW(bool bWait);
+
+    [DllImport(\"$escapedDllPath\")]
+    public static extern int Everything_GetNumResults();
+
+    [DllImport(\"$escapedDllPath\", CharSet = CharSet.Unicode)]
+    public static extern int Everything_GetResultFullPathNameW(int nIndex, System.Text.StringBuilder lpString, int nMaxCount);
+}
+"@
+            Add-Type -TypeDefinition $source -Language CSharp
+        }
+
+        $everythingQuery = "$userInput *.exe"
+        [Everything]::Everything_SetSearchW($everythingQuery)
+        [Everything]::Everything_QueryW($true)
+        $numResults = [Everything]::Everything_GetNumResults()
+
+        if ($numResults -eq 0) {
+            Write-Host "❌ No app matches input: $userInput (not found in Start Menu or Everything index)" -ForegroundColor Red
+            return
+        }
+
+        $exeResults = @()
+        for ($i = 0; $i -lt $numResults; $i++) {
+            $sb = New-Object System.Text.StringBuilder 1024
+            [Everything]::Everything_GetResultFullPathNameW($i, $sb, $sb.Capacity)
+            $result = $sb.ToString()
+            if ($result -match '(?i)\.exe$' -and $result -notmatch '\\?\$Recycle\.Bin') {
+                $exeResults += $result
+            }
+        }
+
+        $exeResults = $exeResults | Sort-Object -Unique
+        if ($exeResults.Count -eq 0) {
+            Write-Host "❌ No .exe files found by Everything for input: $userInput" -ForegroundColor Red
+            return
+        }
+        if ($exeResults.Count -eq 1) {
+            $exeToLaunch = $exeResults[0]
+        } else {
+            Write-Host "\nAvailable executables found by Everything:"
+            for ($i = 0; $i -lt $exeResults.Count; $i++) {
+                Write-Host ("  [{0}] {1}" -f ($i + 1), $exeResults[$i])
+            }
+            $choice = Read-Host "Enter the number of the executable to open, or 'n' to cancel"
+            if ($choice -match '^(n|no)$') {
+                Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
+                return
+            }
+            if ($choice -notmatch '^[0-9]+$' -or [int]$choice -lt 1 -or [int]$choice -gt $exeResults.Count) {
+                Write-Host "❌ Invalid selection." -ForegroundColor Red
+                return
+            }
+            $exeToLaunch = $exeResults[[int]$choice - 1]
+        }
+        Write-Host ("\n🚀 Launching: {0}" -f $exeToLaunch)
+        try {
+            Start-Process $exeToLaunch
+        } catch {
+            Write-Host "❌ Failed to launch: $exeToLaunch" -ForegroundColor Red
+            Write-Host $_.Exception.Message -ForegroundColor DarkRed
+        }
         return
     }
 
