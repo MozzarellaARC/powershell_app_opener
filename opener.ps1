@@ -125,7 +125,7 @@ public class Everything
         $exeResults = @()
         for ($i = 0; $i -lt $numResults; $i++) {
             $sb = New-Object System.Text.StringBuilder 1024
-            [Everything]::Everything_GetResultFullPathNameW($i, $sb, $sb.Capacity)
+            $null = [Everything]::Everything_GetResultFullPathNameW($i, $sb, $sb.Capacity)
             $result = $sb.ToString()
             if ($result -match '(?i)\.exe$' -and $result -notmatch '\\?\$Recycle\.Bin') {
                 $exeResults += $result
