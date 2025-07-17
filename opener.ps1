@@ -78,24 +78,24 @@ function open-dir {
     if (-not ([System.Management.Automation.PSTypeName]'Everything').Type) {
         $scriptDir = $PSScriptRoot
         if (-not $scriptDir) { $scriptDir = Split-Path $PSCommandPath }
-        $everythingDllPath = Join-Path $scriptDir "..\epwsh\Everything-SDK\dll\Everything64.dll"
-        $escapedDllPath = $everythingDllPath -replace '\\', '\\\\'
+        $everythingDllPath = Resolve-Path (Join-Path $scriptDir "..\epwsh\Everything-SDK\dll\Everything64.dll")
+        $dllPath = $everythingDllPath.Path
         $source = @"
 using System;
 using System.Runtime.InteropServices;
 
 public class Everything
 {
-    [DllImport(\"$escapedDllPath\", CharSet = CharSet.Unicode)]
+    [DllImport(@"$dllPath", CharSet = CharSet.Unicode)]
     public static extern void Everything_SetSearchW(string search);
 
-    [DllImport(\"$escapedDllPath\")]
+    [DllImport(@"$dllPath")]
     public static extern void Everything_QueryW(bool bWait);
 
-    [DllImport(\"$escapedDllPath\")]
+    [DllImport(@"$dllPath")]
     public static extern int Everything_GetNumResults();
 
-    [DllImport(\"$escapedDllPath\", CharSet = CharSet.Unicode)]
+    [DllImport(@"$dllPath", CharSet = CharSet.Unicode)]
     public static extern int Everything_GetResultFullPathNameW(int nIndex, System.Text.StringBuilder lpString, int nMaxCount);
 }
 "@
@@ -221,24 +221,24 @@ function open {
         if (-not ([System.Management.Automation.PSTypeName]'Everything').Type) {
             $scriptDir = $PSScriptRoot
             if (-not $scriptDir) { $scriptDir = Split-Path $PSCommandPath }
-            $everythingDllPath = Join-Path $scriptDir "..\epwsh\Everything-SDK\dll\Everything64.dll"
-            $escapedDllPath = $everythingDllPath -replace '\\', '\\\\'
+            $everythingDllPath = Resolve-Path (Join-Path $scriptDir "..\epwsh\Everything-SDK\dll\Everything64.dll")
+            $dllPath = $everythingDllPath.Path
             $source = @"
 using System;
 using System.Runtime.InteropServices;
 
 public class Everything
 {
-    [DllImport(\"$escapedDllPath\", CharSet = CharSet.Unicode)]
+    [DllImport(@"$dllPath", CharSet = CharSet.Unicode)]
     public static extern void Everything_SetSearchW(string search);
 
-    [DllImport(\"$escapedDllPath\")]
+    [DllImport(@"$dllPath")]
     public static extern void Everything_QueryW(bool bWait);
 
-    [DllImport(\"$escapedDllPath\")]
+    [DllImport(@"$dllPath")]
     public static extern int Everything_GetNumResults();
 
-    [DllImport(\"$escapedDllPath\", CharSet = CharSet.Unicode)]
+    [DllImport(@"$dllPath", CharSet = CharSet.Unicode)]
     public static extern int Everything_GetResultFullPathNameW(int nIndex, System.Text.StringBuilder lpString, int nMaxCount);
 }
 "@
