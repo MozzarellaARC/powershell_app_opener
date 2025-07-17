@@ -103,7 +103,12 @@ public class Everything
     }
 
     # Use Everything SDK to search for executables
-    $everythingQuery = "$searchInput *.exe"
+    # For multi-word searches, we want to find paths that contain ALL terms
+    $searchTerms = $searchInput -split '\s+'
+    $mainAppName = $searchTerms[0]
+    
+    # Start with searching for the main app name
+    $everythingQuery = "$mainAppName *.exe"
     [Everything]::Everything_SetSearchW($everythingQuery)
     [Everything]::Everything_QueryW($true)
     $numResults = [Everything]::Everything_GetNumResults()
@@ -118,8 +123,21 @@ public class Everything
         $sb = New-Object System.Text.StringBuilder 1024
         $null = [Everything]::Everything_GetResultFullPathNameW($i, $sb, $sb.Capacity)
         $result = $sb.ToString()
-        if ($result -match '(?i)\.exe$' -and $result -notmatch '\\?\$Recycle\.Bin') {
+        
+        # Check if it's an exe file and contains all search terms
+        if ($result -match '(?i)\.exe$') {
+            # Check if the full path contains ALL search terms
+            $pathContainsAllTerms = $true
+            foreach ($term in $searchTerms) {
+                if ($result -notlike "*$term*") {
+                    $pathContainsAllTerms = $false
+                    break
+                }
+            }
+            
+            if ($pathContainsAllTerms) {
             $exeResults += $result
+            }
         }
     }
 
