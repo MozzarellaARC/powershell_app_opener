@@ -2,7 +2,7 @@
 $Script:AppCacheFile = "$env:TEMP\PowerShell_AppCache.xml"
 
 # Load apps from cache file or create cache if it doesn't exist
-function Get-CachedApps {
+function open-get {
     if (Test-Path $Script:AppCacheFile) {
         try {
             $Script:CachedApps = Import-Clixml $Script:AppCacheFile
@@ -14,12 +14,12 @@ function Get-CachedApps {
     
     # Cache doesn't exist or is corrupted, create it
     Write-Host "🔄 Building app cache (first time setup)..." -ForegroundColor Cyan
-    Refresh-AppCache
+    open-refresh
     return $Script:CachedApps
 }
 
 # Function to manually refresh the app cache
-function Refresh-AppCache {
+function open-refresh {
     Write-Host "🔄 Refreshing app cache..." -ForegroundColor Cyan
     $Script:CachedApps = Get-StartApps | Sort-Object Name
     
@@ -44,6 +44,121 @@ function Clear-AppCache {
     $Script:CachedApps = $null
 }
 
+function open-dir {
+    param(
+        [Parameter(Mandatory=$true, Position=0, ValueFromRemainingArguments=$true)]
+        [string[]]$Name
+    )
+    
+    # ALIASES FOR FASTER TYPING TO OPEN APP DIRECTORIES
+    $appAliases = @{
+        'vsc' = 'Visual Studio Code'
+        'vscode' = 'Visual Studio Code'
+        'vs'  = 'Visual Studio'
+        'word' = 'Word'
+        'excel' = 'Excel'
+        'ppt' = 'PowerPoint'
+        'ps' = 'PowerShell'
+        # ADD MORE HERE
+    }
+    
+    $userInput = ($Name -join ' ')
+    if ([string]::IsNullOrWhiteSpace($userInput)) {
+        Write-Host "❌ No app name provided." -ForegroundColor Yellow
+        return
+    }
+    
+    $searchInput = $userInput
+    $userInputLower = $userInput.ToLower()
+    if ($appAliases.ContainsKey($userInputLower)) {
+        $searchInput = $appAliases[$userInputLower]
+    }
+    
+    # Load Everything SDK if not already loaded
+    if (-not ([System.Management.Automation.PSTypeName]'Everything').Type) {
+        $scriptDir = $PSScriptRoot
+        if (-not $scriptDir) { $scriptDir = Split-Path $PSCommandPath }
+        $everythingDllPath = Join-Path $scriptDir "..\epwsh\Everything-SDK\dll\Everything64.dll"
+        $escapedDllPath = $everythingDllPath -replace '\\', '\\\\'
+        $source = @"
+using System;
+using System.Runtime.InteropServices;
+
+public class Everything
+{
+    [DllImport(\"$escapedDllPath\", CharSet = CharSet.Unicode)]
+    public static extern void Everything_SetSearchW(string search);
+
+    [DllImport(\"$escapedDllPath\")]
+    public static extern void Everything_QueryW(bool bWait);
+
+    [DllImport(\"$escapedDllPath\")]
+    public static extern int Everything_GetNumResults();
+
+    [DllImport(\"$escapedDllPath\", CharSet = CharSet.Unicode)]
+    public static extern int Everything_GetResultFullPathNameW(int nIndex, System.Text.StringBuilder lpString, int nMaxCount);
+}
+"@
+        Add-Type -TypeDefinition $source -Language CSharp
+    }
+
+    # Use Everything SDK to search for executables
+    $everythingQuery = "$searchInput *.exe"
+    [Everything]::Everything_SetSearchW($everythingQuery)
+    [Everything]::Everything_QueryW($true)
+    $numResults = [Everything]::Everything_GetNumResults()
+
+    if ($numResults -eq 0) {
+        Write-Host "❌ No executables found for: $searchInput" -ForegroundColor Red
+        return
+    }
+
+    $exeResults = @()
+    for ($i = 0; $i -lt $numResults; $i++) {
+        $sb = New-Object System.Text.StringBuilder 1024
+        $null = [Everything]::Everything_GetResultFullPathNameW($i, $sb, $sb.Capacity)
+        $result = $sb.ToString()
+        if ($result -match '(?i)\.exe$' -and $result -notmatch '\\?\$Recycle\.Bin') {
+            $exeResults += $result
+        }
+    }
+
+    $exeResults = $exeResults | Sort-Object -Unique
+    if ($exeResults.Count -eq 0) {
+        Write-Host "❌ No .exe files found for input: $searchInput" -ForegroundColor Red
+        return
+    }
+    
+    if ($exeResults.Count -eq 1) {
+        $exeToOpen = $exeResults[0]
+    } else {
+        Write-Host "\nAvailable executables found:"
+        for ($i = 0; $i -lt $exeResults.Count; $i++) {
+            Write-Host ("  [{0}] {1}" -f ($i + 1), $exeResults[$i])
+        }
+        $choice = Read-Host "Enter the number of the executable directory to open, or 'n' to cancel"
+        if ($choice -match '^(n|no)$') {
+            Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
+            return
+        }
+        if ($choice -notmatch '^[0-9]+$' -or [int]$choice -lt 1 -or [int]$choice -gt $exeResults.Count) {
+            Write-Host "❌ Invalid selection." -ForegroundColor Red
+            return
+        }
+        $exeToOpen = $exeResults[[int]$choice - 1]
+    }
+    
+    # Open the directory containing the executable
+    $exeDir = Split-Path $exeToOpen -Parent
+    Write-Host ("📁 Opening directory: {0}" -f $exeDir) -ForegroundColor Green
+    try {
+        Start-Process "explorer.exe" -ArgumentList "`"$exeDir`""
+    } catch {
+        Write-Host "❌ Failed to open directory: $exeDir" -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor DarkRed
+    }
+}
+
 function open {
     param(
         [Parameter(Mandatory=$true, Position=0, ValueFromRemainingArguments=$true)]
@@ -62,7 +177,7 @@ function open {
     }
     
     # Use cached apps from file
-    $apps = Get-CachedApps
+    $apps = open-get
     if (-not $apps) {
         Write-Host "❌ No Start Menu apps found." -ForegroundColor Red
         return
