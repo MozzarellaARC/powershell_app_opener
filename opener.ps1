@@ -1,6 +1,76 @@
 # File-based cache for app list
 $Script:AppCacheFile = "$env:TEMP\PowerShell_AppCache.xml"
 
+# Interactive menu functions
+function moveCursor{ param($position)
+    $host.UI.RawUI.CursorPosition = $position
+}
+
+function RedrawMenuItems{ 
+    param ([array]$menuItems, $oldMenuPos=0, $menuPosition=0, $currPos)
+    
+    # +1 comes from leading new line in the menu
+    $menuLen = $menuItems.Count + 1
+    $fcolor = $host.UI.RawUI.ForegroundColor
+    $bcolor = $host.UI.RawUI.BackgroundColor
+    $menuOldPos = New-Object System.Management.Automation.Host.Coordinates(0, ($currPos.Y - ($menuLen - $oldMenuPos)))
+    $menuNewPos = New-Object System.Management.Automation.Host.Coordinates(0, ($currPos.Y - ($menuLen - $menuPosition)))
+    
+    moveCursor $menuOldPos
+    Write-Host "`t" -NoNewLine
+    Write-Host "$oldMenuPos. $($menuItems[$oldMenuPos])" -fore $fcolor -back $bcolor -NoNewLine
+
+    moveCursor $menuNewPos
+    Write-Host "`t" -NoNewLine
+    Write-Host "$menuPosition. $($menuItems[$menuPosition])" -fore $bcolor -back $fcolor -NoNewLine
+
+    moveCursor $currPos
+}
+
+function DrawMenu { param ([array]$menuItems, $menuPosition, $menuTitel)
+    $fcolor = $host.UI.RawUI.ForegroundColor
+    $bcolor = $host.UI.RawUI.BackgroundColor
+
+    $menuwidth = $menuTitel.length + 4
+    Write-Host "`t" -NoNewLine;    Write-Host ("=" * $menuwidth) -fore $fcolor -back $bcolor
+    Write-Host "`t" -NoNewLine;    Write-Host " $menuTitel " -fore $fcolor -back $bcolor
+    Write-Host "`t" -NoNewLine;    Write-Host ("=" * $menuwidth) -fore $fcolor -back $bcolor
+    Write-Host ""
+    for ($i = 0; $i -le $menuItems.length;$i++) {
+        Write-Host "`t" -NoNewLine
+        if ($i -eq $menuPosition) {
+            Write-Host "$i. $($menuItems[$i])" -fore $bcolor -back $fcolor -NoNewline
+            Write-Host "" -fore $fcolor -back $bcolor
+        } else {
+           if ($($menuItems[$i])) {
+            Write-Host "$i. $($menuItems[$i])" -fore $fcolor -back $bcolor
+           } 
+        }
+    }
+    # leading new line
+    Write-Host ""
+}
+
+function Menu { param ([array]$menuItems, $menuTitel = "MENU")
+    $vkeycode = 0
+    $pos = 0
+    $oldPos = 0
+    DrawMenu $menuItems $pos $menuTitel
+    $currPos=$host.UI.RawUI.CursorPosition
+    While ($vkeycode -ne 13) {
+        $press = $host.ui.rawui.readkey("NoEcho,IncludeKeyDown")
+        $vkeycode = $press.virtualkeycode
+        Write-host "$($press.character)" -NoNewLine
+        $oldPos=$pos;
+        If ($vkeycode -eq 38) {$pos--}
+        If ($vkeycode -eq 40) {$pos++}
+        if ($pos -lt 0) {$pos = 0}
+        if ($pos -ge $menuItems.length) {$pos = $menuItems.length -1}
+        RedrawMenuItems $menuItems $oldPos $pos $currPos
+    }
+    Write-Output $pos
+}
+
 # Load apps from cache file or create cache if it doesn't exist
 function open-get {
     if (Test-Path $Script:AppCacheFile) {
@@ -151,19 +221,19 @@ public class Everything
         $exeToOpen = $exeResults[0]
     } else {
         Write-Host "\nAvailable executables found:"
+        $menuItems = @()
         for ($i = 0; $i -lt $exeResults.Count; $i++) {
-            Write-Host ("  [{0}] {1}" -f ($i + 1), $exeResults[$i])
+            $menuItems += $exeResults[$i]
         }
-        $choice = Read-Host "Enter the number of the executable directory to open, or 'n' to cancel"
-        if ($choice -match '^(n|no)$') {
+        $menuItems += "Cancel"
+        
+        $selection = Menu $menuItems "Select executable directory to open"
+        
+        if ($selection -eq $menuItems.Count - 1) {
             Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
             return
         }
-        if ($choice -notmatch '^[0-9]+$' -or [int]$choice -lt 1 -or [int]$choice -gt $exeResults.Count) {
-            Write-Host "❌ Invalid selection." -ForegroundColor Red
-            return
-        }
-        $exeToOpen = $exeResults[[int]$choice - 1]
+        $exeToOpen = $exeResults[$selection]
     }
     
     # Open the directory containing the executable
@@ -274,19 +344,19 @@ public class Everything
             $exeToLaunch = $exeResults[0]
         } else {
             Write-Host "\nAvailable executables found by Everything:"
+            $menuItems = @()
             for ($i = 0; $i -lt $exeResults.Count; $i++) {
-                Write-Host ("  [{0}] {1}" -f ($i + 1), $exeResults[$i])
+                $menuItems += $exeResults[$i]
             }
-            $choice = Read-Host "Enter the number of the executable to open, or 'n' to cancel"
-            if ($choice -match '^(n|no)$') {
+            $menuItems += "Cancel"
+            
+            $selection = Menu $menuItems "Select executable to launch"
+            
+            if ($selection -eq $menuItems.Count - 1) {
                 Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
                 return
             }
-            if ($choice -notmatch '^[0-9]+$' -or [int]$choice -lt 1 -or [int]$choice -gt $exeResults.Count) {
-                Write-Host "❌ Invalid selection." -ForegroundColor Red
-                return
-            }
-            $exeToLaunch = $exeResults[[int]$choice - 1]
+            $exeToLaunch = $exeResults[$selection]
         }
         Write-Host ("\n🚀 Launching: {0}" -f $exeToLaunch)
         try {
@@ -305,6 +375,7 @@ public class Everything
         $appSelected = $appMatchArray[0]
     } else {
         Write-Host "`nAvailable matches:"
+        $menuItems = @()
         # Pre-calculate lengths more efficiently
         $nameWidths = $appMatchArray | ForEach-Object { $_.Name.Length }
         $maxNameLen = ($nameWidths | Measure-Object -Maximum).Maximum
@@ -314,23 +385,21 @@ public class Everything
         }
         $maxAppIdLen = ($appIdWidths | Measure-Object -Maximum).Maximum
         
-        Write-Host ("    {0,-$maxNameLen}  {1,-$maxAppIdLen}" -f 'Name', 'AppID')
         for ($i = 0; $i -lt $appMatchArray.Count; $i++) {
             $app = $appMatchArray[$i]
             $appIdDisplay = if ($app.AppID) { $app.AppID } else { '<no AppID>' }
-            Write-Host ("  [{0}] {1,-$maxNameLen}  {2,-$maxAppIdLen}" -f ($i + 1), $app.Name, $appIdDisplay)
+            $displayText = "{0,-$maxNameLen}  {1,-$maxAppIdLen}" -f $app.Name, $appIdDisplay
+            $menuItems += $displayText
         }
+        $menuItems += "Cancel"
         
-        $choice = Read-Host "Enter the number of the app to open, or 'n' to cancel"
-        if ($choice -match '^(n|no)$') {
+        $selection = Menu $menuItems "Select app to launch"
+        
+        if ($selection -eq $menuItems.Count - 1) {
             Write-Host "❌ Cancelled by user." -ForegroundColor Yellow
             return
         }
-        if ($choice -notmatch '^[0-9]+$' -or [int]$choice -lt 1 -or [int]$choice -gt $appMatchArray.Count) {
-            Write-Host "❌ Invalid selection." -ForegroundColor Red
-            return
-        }
-        $appSelected = $appMatchArray[[int]$choice - 1]
+        $appSelected = $appMatchArray[$selection]
     }
 
     # Simplified AppID check
